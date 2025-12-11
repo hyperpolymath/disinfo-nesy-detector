@@ -1,0 +1,24 @@
+# Go compiled binary
+main
+*.exe
+
+# Go build artifacts
+*.test
+*.out
+
+# Dependency directories
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

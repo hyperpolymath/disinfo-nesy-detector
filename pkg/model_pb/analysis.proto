@@ -1,0 +1,16 @@
+syntax = "proto3";
+package model_pb;
+option go_package = "gitlab.com/hyperpolymath/disinfo-nsai-detector/pkg/model_pb";
+
+message AnalysisInput {
+    string content_hash = 1;
+    string content_text = 2;
+    string source_id = 3;
+    string image_url = 4;
+}
+
+message NeuralFeatures {
+    float fakeness_score = 1;
+    float emotion_score = 2;
+    bool visual_artifact = 3;
+}
