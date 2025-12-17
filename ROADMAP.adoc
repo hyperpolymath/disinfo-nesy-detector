@@ -1,0 +1,182 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2025 Jonathan D.A. Jewell
+= disinfo-nsai-detector Roadmap
+:toc:
+:sectnums:
+:icons: font
+
+== Overview
+
+This roadmap outlines the development phases for the disinformation and AI-generated content detection system. The project follows RSR (Rhodium Standard Repository) guidelines and targets Rust as the primary implementation language.
+
+== Current Status (v0.1.0)
+
+[cols="2,1,3"]
+|===
+|Component |Status |Notes
+
+|RSR Compliance |100% |SHA-pinned actions, SPDX headers, multi-platform CI
+|Security Workflows |100% |11 workflows, all SHA-pinned
+|Package Management |100% |guix.scm (primary) + flake.nix (fallback)
+|Documentation |40% |README, META/STATE/ECOSYSTEM.scm complete
+|Go -> Rust Conversion |0% |*HIGH PRIORITY* - Required for RSR compliance
+|Core Functionality |25% |Placeholder implementations in Go
+|Test Coverage |10% |CI scaffolding only
+|===
+
+== Phase 1: Rust Conversion (v0.2.0) [HIGH PRIORITY]
+
+The immediate priority is converting all Go code to Rust per RSR policy.
+
+=== Milestone 1.1: Project Setup
+* [ ] Create `Cargo.toml` with dependencies:
+** `async-nats = "0.33"` - NATS JetStream client
+** `ort = "2.0"` - ONNX Runtime bindings
+** `prometheus = "0.13"` - Metrics collection
+** `prost = "0.12"` - Protocol Buffers
+** `tokio = { version = "1", features = ["full"] }` - Async runtime
+** `tracing = "0.1"` - Structured logging
+* [ ] Set up `build.rs` for prost code generation
+* [ ] Update `guix.scm` to `cargo-build-system`
+* [ ] Update `flake.nix` with Rust build
+
+=== Milestone 1.2: Core Module Conversion
+* [ ] Convert `cmd/main.go` -> `src/main.rs`
+** Tokio async runtime setup
+** NATS JetStream consumer with async-nats
+** Prometheus metrics endpoint
+** Graceful shutdown handling
+* [ ] Convert `pkg/onnx_wrapper/` -> `src/onnx/`
+** ORT crate integration
+** Model loading and inference
+** Batch processing support
+* [ ] Convert `pkg/souffle_wrapper/` -> `src/datalog/`
+** Evaluate: `crepe` (pure Rust) vs Souffle FFI
+** Define Datalog rules for detection
+* [ ] Generate `src/proto/` from `analysis.proto` with prost
+
+=== Milestone 1.3: Cleanup
+* [ ] Delete all `.go` files after successful conversion
+* [ ] Remove `go.mod` and `go.sum`
+* [ ] Update Containerfile for Rust build
+* [ ] Verify CI pipelines pass
+
+== Phase 2: Core Functionality (v0.3.0)
+
+=== Milestone 2.1: Neural Features
+* [ ] Integrate pre-trained ONNX models:
+** Text classification (fakeness score)
+** Sentiment/emotion analysis
+** Image artifact detection
+* [ ] Implement feature extraction pipeline
+* [ ] Add batch inference support
+
+=== Milestone 2.2: Symbolic Reasoning
+* [ ] Define Datalog fact schemas
+* [ ] Implement detection rules:
+** Source credibility scoring
+** Cross-reference verification
+** Temporal consistency checks
+* [ ] Integrate with Dgraph for knowledge graph
+
+=== Milestone 2.3: Message Pipeline
+* [ ] NATS JetStream stream configuration
+* [ ] Dead letter queue handling
+* [ ] Message deduplication
+* [ ] Backpressure management
+
+== Phase 3: Production Readiness (v0.5.0)
+
+=== Milestone 3.1: Testing
+* [ ] Unit tests (>70% coverage)
+* [ ] Integration tests with NATS
+* [ ] Property-based tests for detection logic
+* [ ] Benchmark suite for inference latency
+
+=== Milestone 3.2: Observability
+* [ ] Prometheus metrics dashboard
+* [ ] Distributed tracing with OpenTelemetry
+* [ ] Structured logging with JSON output
+* [ ] Health check endpoints
+
+=== Milestone 3.3: Deployment
+* [ ] Helm chart for Kubernetes
+* [ ] SaltStack state modules
+* [ ] Podman Compose for development
+* [ ] Multi-arch container images (amd64/arm64)
+
+== Phase 4: Production Release (v1.0.0)
+
+=== Milestone 4.1: Security Audit
+* [ ] Third-party security review
+* [ ] Fuzzing with cargo-fuzz
+* [ ] Dependency audit with cargo-deny
+* [ ] OpenSSF Scorecard > 8.0
+
+=== Milestone 4.2: Documentation
+* [ ] API documentation (rustdoc)
+* [ ] Architecture diagrams
+* [ ] Deployment guide
+* [ ] User documentation
+
+=== Milestone 4.3: Performance
+* [ ] Latency optimization (<100ms p99)
+* [ ] Memory profiling
+* [ ] Connection pooling
+* [ ] Model optimization (quantization)
+
+== Future Phases (Post-1.0)
+
+=== v1.1: Extended Detection
+* Deepfake video detection
+* Audio synthesis detection
+* Multi-language support
+
+=== v1.2: Federated Learning
+* Distributed model training
+* Privacy-preserving updates
+* Model versioning
+
+=== v2.0: Real-time Platform
+* WebSocket streaming API
+* Dashboard UI (ReScript)
+* Multi-tenant support
+
+== Technology Stack
+
+[cols="2,3"]
+|===
+|Component |Technology
+
+|Language |Rust (required by RSR)
+|Async Runtime |Tokio
+|Message Queue |NATS JetStream
+|ML Inference |ONNX Runtime (ort crate)
+|Symbolic Logic |Datalog (crepe or Souffle)
+|Metrics |Prometheus
+|Serialization |Protocol Buffers (prost)
+|Container |Podman (rootless)
+|Orchestration |Kubernetes (Helm)
+|Config Mgmt |SaltStack
+|Package Mgmt |Guix (primary), Nix (fallback)
+|CI/CD |GitHub Actions + GitLab CI
+|===
+
+== Security Requirements
+
+* SHA-256+ for all cryptographic operations
+* HTTPS only (no HTTP URLs)
+* No hardcoded secrets (environment variables)
+* SHA-pinned GitHub Actions
+* SPDX license headers on all files
+* OpenSSF Scorecard compliance
+* Dependency scanning (Dependabot + OSSF)
+* SAST with CodeQL
+
+== References
+
+* link:RUST_CONVERSION_NEEDED.md[Rust Conversion Guide]
+* link:RSR_COMPLIANCE.adoc[RSR Compliance Status]
+* link:STATE.scm[Project State Checkpoint]
+* link:META.scm[Architecture Decisions]
+* https://github.com/hyperpolymath/rhodium-standard-repositories[RSR Standard]

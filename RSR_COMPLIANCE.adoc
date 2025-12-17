@@ -13,10 +13,10 @@ This document describes the Rhodium Standard Repository (RSR) compliance status 
 |Attribute |Value
 
 |Project |disinfo-nsai-detector
-|Primary Language |unknown
-|RSR Tier |N/A
-|Compliance Status |Review Needed
-|Last Updated |2025-12-10
+|Primary Language |Go → Rust (conversion required)
+|RSR Tier |Tier 1 target (Rust)
+|Compliance Status |In Progress
+|Last Updated |2025-12-17
 |===
 
 == Language Tier Classification
@@ -46,24 +46,26 @@ This document describes the Rhodium Standard Repository (RSR) compliance status 
 |===
 |Requirement |Status |Notes
 
-|Primary language is Tier 1/2 |✓ |unknown
-|No restricted languages outside exemptions |✓ |
+|Primary language is Tier 1/2 |⚠️ |Go present (Rust conversion required)
+|No restricted languages outside exemptions |⚠️ |Go files pending Rust conversion
 |.editorconfig present |✓ |
 |.well-known/ directory |✓ |
-|justfile present |✗ |
-|LICENSE.txt (AGPL + Palimpsest) |✗ |
+|justfile present |✓ |
+|LICENSE (AGPL-3.0-or-later) |✓ |
 |Containerfile present |✓ |
-|flake.nix present |✗ |
+|guix.scm present |✓ |Primary package management
+|flake.nix present |✓ |Nix fallback
 |===
 
 == Exemptions
 
-None
+* Go files temporarily present pending Rust conversion (tracked in RUST_CONVERSION_NEEDED.md)
 
 == Action Items
 
-* Add justfile
-* Add flake.nix
+* *HIGH*: Convert Go code to Rust (see RUST_CONVERSION_NEEDED.md)
+* *MEDIUM*: Create Cargo.toml for Rust build
+* *MEDIUM*: Update guix.scm to cargo-build-system after conversion
 
 == References
 

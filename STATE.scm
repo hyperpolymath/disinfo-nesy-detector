@@ -15,7 +15,7 @@
   '((version . "0.1.0")
     (schema-version . "1.0")
     (created . "2025-12-15")
-    (updated . "2025-12-15")
+    (updated . "2025-12-17")
     (project . "disinfo-nsai-detector")
     (repo . "github.com/hyperpolymath/disinfo-nsai-detector")))
 
@@ -25,15 +25,17 @@
 
 (define project-context
   '((name . "disinfo-nsai-detector")
-    (tagline . "Jonathan D.A. Jewell <jonathan.jewell@gmail.com>")
+    (tagline . "Disinformation and AI-generated content detection")
     (version . "0.1.0")
     (license . "AGPL-3.0-or-later")
     (rsr-compliance . "gold-target")
 
     (tech-stack
-     ((primary . "See repository languages")
+     ((current . "Go (pending Rust conversion)")
+      (target . "Rust (async-nats, ort, prometheus, prost)")
       (ci-cd . "GitHub Actions + GitLab CI + Bitbucket Pipelines")
-      (security . "CodeQL + OSSF Scorecard")))))
+      (security . "CodeQL + OSSF Scorecard + TruffleHog")
+      (package-mgmt . "Guix (primary) + Nix (fallback)")))))
 
 ;;;============================================================================
 ;;; CURRENT POSITION
@@ -113,13 +115,21 @@
      ())  ;; No critical blockers
 
     (high-priority
-     ())  ;; No high-priority blockers
+     ((rust-conversion
+       ((description . "Go code must be converted to Rust per RSR policy")
+        (impact . "Non-compliant with RSR language requirements")
+        (needed . "Convert cmd/main.go and pkg/* to Rust")
+        (reference . "RUST_CONVERSION_NEEDED.md")))))
 
     (medium-priority
      ((test-coverage
        ((description . "Limited test infrastructure")
         (impact . "Risk of regressions")
-        (needed . "Comprehensive test suites")))))
+        (needed . "Comprehensive test suites")))
+      (cargo-toml
+       ((description . "Missing Cargo.toml for Rust build")
+        (impact . "Cannot build Rust code")
+        (needed . "Create Cargo.toml with dependencies")))))
 
     (low-priority
      ((documentation-gaps
@@ -133,17 +143,19 @@
 
 (define critical-next-actions
   '((immediate
-     (("Review and update documentation" . medium)
-      ("Add initial test coverage" . high)
-      ("Verify CI/CD pipeline functionality" . high)))
+     (("Create Cargo.toml with Rust dependencies" . high)
+      ("Convert cmd/main.go to Rust with tokio+async-nats" . high)
+      ("Convert pkg/onnx_wrapper to Rust with ort crate" . high)))
 
     (this-week
-     (("Implement core features" . high)
-      ("Expand test coverage" . medium)))
+     (("Convert pkg/souffle_wrapper to Rust" . high)
+      ("Generate Rust protobuf bindings with prost" . medium)
+      ("Add initial Rust test coverage" . medium)))
 
     (this-month
-     (("Reach v0.2 milestone" . high)
-      ("Complete documentation" . medium)))))
+     (("Complete Go -> Rust conversion" . critical)
+      ("Update guix.scm to cargo-build-system" . medium)
+      ("Reach v0.2 milestone" . high)))))
 
 ;;;============================================================================
 ;;; SESSION HISTORY
@@ -151,6 +163,16 @@
 
 (define session-history
   '((snapshots
+     ((date . "2025-12-17")
+      (session . "scm-security-review")
+      (accomplishments
+       ("Fixed RSR_COMPLIANCE.adoc with accurate status"
+        "Fixed META.scm syntax error (cross-platform-status)"
+        "Created flake.nix for Nix fallback package management"
+        "Updated STATE.scm with Rust conversion priorities"
+        "Reviewed all 11 GitHub security workflows - all SHA-pinned"))
+      (notes . "Security and SCM review session"))
+
      ((date . "2025-12-15")
       (session . "initial-state-creation")
       (accomplishments
@@ -185,10 +207,11 @@
 (define state-summary
   '((project . "disinfo-nsai-detector")
     (version . "0.1.0")
-    (overall-completion . 25)
-    (next-milestone . "v0.2 - Core Functionality")
+    (overall-completion . 30)
+    (next-milestone . "v0.2 - Rust Conversion + Core Functionality")
     (critical-blockers . 0)
-    (high-priority-issues . 0)
-    (updated . "2025-12-15")))
+    (high-priority-issues . 1)
+    (primary-blocker . "Go -> Rust conversion required")
+    (updated . "2025-12-17")))
 
 ;;; End of STATE.scm
