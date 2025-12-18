@@ -96,12 +96,22 @@
       ReScript for type-safe frontends, Ada/SPARK for formally verified code.
       Each language is chosen for its strengths in its domain.")))
 
-;;; End of META.scm
+;;;============================================================================
+;;; Cross-Platform Status
+;;;============================================================================
 
-;; CROSS-PLATFORM STATUS (2025-12-17)
-(cross-platform-status
-  (sync-status "needs-review")
-  (gitlab-url "https://gitlab.com/hyperpolymath/disinfo-nsai-detector")
-  (instructions
-    ";; git remote add gitlab <gitlab-url>"
-    ";; git fetch gitlab && git diff main gitlab/main"))
+(define cross-platform-status
+  '((last-updated . "2025-12-17")
+    (sync-status . "needs-review")
+    (mirrors
+     ((platform . "gitlab")
+      (url . "https://gitlab.com/hyperpolymath/disinfo-nsai-detector")
+      (status . "active"))
+     ((platform . "github")
+      (url . "https://github.com/hyperpolymath/disinfo-nsai-detector")
+      (status . "primary")))
+    (sync-instructions
+     "git remote add gitlab https://gitlab.com/hyperpolymath/disinfo-nsai-detector"
+     "git fetch gitlab && git diff main gitlab/main")))
+
+;;; End of META.scm
