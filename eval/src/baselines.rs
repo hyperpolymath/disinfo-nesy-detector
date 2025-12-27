@@ -8,8 +8,11 @@
 //! - Majority class baseline (always predict most common class)
 //! - Stratified baseline (predict proportional to class distribution)
 //! - TF-IDF + simple classifier baseline (keyword-based)
+//!
+//! All baselines support explainability through the `predict_with_explanation` method.
 
 use crate::datasets::{Dataset, Label, Sample};
+use crate::explainability::{Evidence, EvidenceType, Explanation, ExplanationBuilder};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
@@ -22,6 +25,13 @@ pub struct Prediction {
     pub probability: f64, // P(disinformation)
 }
 
+/// Extended prediction with explanation
+#[derive(Debug, Clone)]
+pub struct PredictionWithExplanation {
+    pub prediction: Prediction,
+    pub explanation: Explanation,
+}
+
 /// Trait for all baseline models
 pub trait BaselineModel: Send + Sync {
     /// Train the model on the given samples
@@ -30,9 +40,26 @@ pub trait BaselineModel: Send + Sync {
     /// Predict label for a single sample
     fn predict(&self, sample: &Sample) -> Prediction;
 
+    /// Predict with explanation
+    fn predict_with_explanation(&self, sample: &Sample) -> PredictionWithExplanation {
+        let pred = self.predict(sample);
+        let explanation = ExplanationBuilder::new(pred.label, pred.probability)
+            .with_uncertainty("No detailed explanation available for this model type")
+            .build();
+        PredictionWithExplanation {
+            prediction: pred,
+            explanation,
+        }
+    }
+
     /// Predict labels for multiple samples
     fn predict_batch(&self, samples: &[Sample]) -> Vec<Prediction> {
         samples.iter().map(|s| self.predict(s)).collect()
+    }
+
+    /// Predict with explanations for multiple samples
+    fn predict_batch_with_explanations(&self, samples: &[Sample]) -> Vec<PredictionWithExplanation> {
+        samples.iter().map(|s| self.predict_with_explanation(s)).collect()
     }
 
     /// Get model name
@@ -40,6 +67,11 @@ pub trait BaselineModel: Send + Sync {
 
     /// Get model description
     fn description(&self) -> &str;
+
+    /// Check if this model provides meaningful explanations
+    fn supports_explanations(&self) -> bool {
+        false
+    }
 }
 
 /// Random baseline: predicts uniformly at random
@@ -274,6 +306,30 @@ impl TfIdfBaseline {
     }
 }
 
+impl TfIdfBaseline {
+    /// Compute term contributions to the prediction score
+    fn compute_term_contributions(&self, text: &str) -> Vec<(String, f64)> {
+        let tfidf = self.compute_tfidf(text);
+        let smoothing = 1e-10;
+
+        let mut contributions: Vec<(String, f64)> = tfidf
+            .iter()
+            .map(|(term, weight)| {
+                let disinfo_prob = self.disinfo_tf.get(term).copied().unwrap_or(smoothing);
+                let authentic_prob = self.authentic_tf.get(term).copied().unwrap_or(smoothing);
+
+                // Contribution is the difference in log probabilities, weighted by TF-IDF
+                let contribution = weight * (disinfo_prob.ln() - authentic_prob.ln());
+                (term.clone(), contribution)
+            })
+            .collect();
+
+        // Sort by absolute contribution (most important first)
+        contributions.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap_or(std::cmp::Ordering::Equal));
+        contributions
+    }
+}
+
 impl BaselineModel for TfIdfBaseline {
     fn train(&mut self, samples: &[Sample]) {
         self.disinfo_tf.clear();
@@ -372,12 +428,81 @@ impl BaselineModel for TfIdfBaseline {
         }
     }
 
+    fn predict_with_explanation(&self, sample: &Sample) -> PredictionWithExplanation {
+        let pred = self.predict(sample);
+        let contributions = self.compute_term_contributions(&sample.text);
+
+        let mut builder = ExplanationBuilder::new(pred.label, pred.probability);
+
+        // Add top contributing terms as evidence
+        let top_n = 5;
+        for (term, contribution) in contributions.iter().take(top_n) {
+            let evidence_type = if *contribution > 0.0 {
+                EvidenceType::LinguisticPattern
+            } else {
+                EvidenceType::LinguisticPattern
+            };
+
+            let direction = if *contribution > 0.0 {
+                "towards disinformation"
+            } else {
+                "towards authentic"
+            };
+
+            builder = builder.with_evidence(Evidence {
+                evidence_type,
+                description: format!("Term '{}' contributes {} (score: {:.4})", term, direction, contribution),
+                weight: contribution.abs(),
+                span: None,
+                source: "tfidf_classifier".to_string(),
+            });
+        }
+
+        // Add reasoning step
+        let top_disinfo: Vec<_> = contributions.iter().filter(|(_, c)| *c > 0.0).take(3).collect();
+        let top_authentic: Vec<_> = contributions.iter().filter(|(_, c)| *c < 0.0).take(3).collect();
+
+        builder = builder.with_reasoning_step(
+            "naive_bayes_classification",
+            vec![
+                format!("Prior P(disinfo) = {:.3}", self.prior_disinfo),
+                format!("Top disinfo terms: {:?}", top_disinfo.iter().map(|(t, _)| t).collect::<Vec<_>>()),
+                format!("Top authentic terms: {:?}", top_authentic.iter().map(|(t, _)| t).collect::<Vec<_>>()),
+            ],
+            &format!(
+                "Combined evidence yields P(disinfo) = {:.3}",
+                pred.probability
+            ),
+            pred.probability,
+        );
+
+        // Add feature attributions
+        let attributions: HashMap<String, f64> = contributions.iter().cloned().collect();
+        builder = builder.with_attributions(attributions);
+
+        // Add uncertainty factors
+        if contributions.is_empty() {
+            builder = builder.with_uncertainty("No recognized vocabulary terms in text");
+        } else if pred.probability > 0.4 && pred.probability < 0.6 {
+            builder = builder.with_uncertainty("Prediction confidence is near decision boundary");
+        }
+
+        PredictionWithExplanation {
+            prediction: pred,
+            explanation: builder.build(),
+        }
+    }
+
     fn name(&self) -> &str {
         "TF-IDF"
     }
 
     fn description(&self) -> &str {
         "TF-IDF weighted Naive Bayes classifier"
+    }
+
+    fn supports_explanations(&self) -> bool {
+        true
     }
 }
 
@@ -455,29 +580,40 @@ impl Default for KeywordBaseline {
     }
 }
 
+impl KeywordBaseline {
+    /// Get matched keywords from text
+    fn get_keyword_matches(&self, text: &str) -> (Vec<String>, Vec<String>) {
+        let text_lower = text.to_lowercase();
+
+        let disinfo_matches: Vec<String> = self
+            .disinfo_keywords
+            .iter()
+            .filter(|kw| text_lower.contains(&kw.to_lowercase()))
+            .cloned()
+            .collect();
+
+        let authentic_matches: Vec<String> = self
+            .authentic_keywords
+            .iter()
+            .filter(|kw| text_lower.contains(&kw.to_lowercase()))
+            .cloned()
+            .collect();
+
+        (disinfo_matches, authentic_matches)
+    }
+}
+
 impl BaselineModel for KeywordBaseline {
     fn train(&mut self, _samples: &[Sample]) {
         // Keyword baseline uses fixed keyword lists, no training needed
     }
 
     fn predict(&self, sample: &Sample) -> Prediction {
-        let text_lower = sample.text.to_lowercase();
-
-        let disinfo_matches = self
-            .disinfo_keywords
-            .iter()
-            .filter(|kw| text_lower.contains(&kw.to_lowercase()))
-            .count();
-
-        let authentic_matches = self
-            .authentic_keywords
-            .iter()
-            .filter(|kw| text_lower.contains(&kw.to_lowercase()))
-            .count();
+        let (disinfo_matches, authentic_matches) = self.get_keyword_matches(&sample.text);
 
         // Score based on keyword matches
-        let disinfo_score = disinfo_matches as f64 * self.keyword_weight;
-        let authentic_score = authentic_matches as f64 * self.keyword_weight;
+        let disinfo_score = disinfo_matches.len() as f64 * self.keyword_weight;
+        let authentic_score = authentic_matches.len() as f64 * self.keyword_weight;
 
         // Convert to probability with sigmoid
         let diff = disinfo_score - authentic_score;
@@ -493,12 +629,81 @@ impl BaselineModel for KeywordBaseline {
         }
     }
 
+    fn predict_with_explanation(&self, sample: &Sample) -> PredictionWithExplanation {
+        let (disinfo_matches, authentic_matches) = self.get_keyword_matches(&sample.text);
+        let pred = self.predict(sample);
+
+        let mut builder = ExplanationBuilder::new(pred.label, pred.probability);
+
+        // Add evidence for disinformation keywords
+        for kw in &disinfo_matches {
+            builder = builder.with_evidence(Evidence {
+                evidence_type: EvidenceType::KeywordMatch,
+                description: format!("Disinformation indicator: '{}'", kw),
+                weight: self.keyword_weight,
+                span: None,
+                source: "keyword_baseline".to_string(),
+            });
+        }
+
+        // Add evidence for authentic keywords
+        for kw in &authentic_matches {
+            builder = builder.with_evidence(Evidence {
+                evidence_type: EvidenceType::KeywordMatch,
+                description: format!("Authenticity indicator: '{}'", kw),
+                weight: self.keyword_weight,
+                span: None,
+                source: "keyword_baseline".to_string(),
+            });
+        }
+
+        // Add reasoning step
+        let reasoning = format!(
+            "Found {} disinformation indicators and {} authenticity indicators",
+            disinfo_matches.len(),
+            authentic_matches.len()
+        );
+        builder = builder.with_reasoning_step(
+            "keyword_scoring",
+            vec![
+                format!("Disinformation keywords: {:?}", disinfo_matches),
+                format!("Authentic keywords: {:?}", authentic_matches),
+            ],
+            &reasoning,
+            pred.probability,
+        );
+
+        // Add uncertainty if no keywords matched
+        if disinfo_matches.is_empty() && authentic_matches.is_empty() {
+            builder = builder.with_uncertainty("No indicator keywords found in text");
+        }
+
+        // Add feature attributions
+        let mut attributions = HashMap::new();
+        for kw in &disinfo_matches {
+            attributions.insert(format!("kw_disinfo_{}", kw), self.keyword_weight);
+        }
+        for kw in &authentic_matches {
+            attributions.insert(format!("kw_authentic_{}", kw), -self.keyword_weight);
+        }
+        builder = builder.with_attributions(attributions);
+
+        PredictionWithExplanation {
+            prediction: pred,
+            explanation: builder.build(),
+        }
+    }
+
     fn name(&self) -> &str {
         "Keyword"
     }
 
     fn description(&self) -> &str {
         "Hand-crafted keyword matching baseline"
+    }
+
+    fn supports_explanations(&self) -> bool {
+        true
     }
 }
 

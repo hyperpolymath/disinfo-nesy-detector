@@ -7,14 +7,20 @@
 //! - Dataset loading and preprocessing (LIAR, ISOT, FEVER, etc.)
 //! - Evaluation metrics (Accuracy, Precision, Recall, F1, AUC-ROC)
 //! - Baseline models (Random, Majority, TF-IDF + Logistic Regression)
+//! - Explainability structures and metrics
+//! - Model cards for ML transparency
 //! - Reproducible evaluation pipeline with seeded randomness
 
-pub mod datasets;
-pub mod metrics;
 pub mod baselines;
+pub mod datasets;
+pub mod explainability;
+pub mod metrics;
+pub mod model_card;
 pub mod pipeline;
 
-pub use datasets::{Dataset, DatasetConfig, Sample, Label};
-pub use metrics::{EvaluationMetrics, ConfusionMatrix, ClassificationReport};
-pub use baselines::{BaselineModel, RandomBaseline, MajorityBaseline, TfIdfBaseline};
-pub use pipeline::{EvaluationPipeline, EvaluationConfig, EvaluationResults};
+pub use baselines::{BaselineModel, MajorityBaseline, RandomBaseline, TfIdfBaseline};
+pub use datasets::{Dataset, DatasetConfig, Label, Sample};
+pub use explainability::{Evidence, EvidenceType, Explanation, ExplainabilityMetrics, Explainable};
+pub use metrics::{ClassificationReport, ConfusionMatrix, EvaluationMetrics};
+pub use model_card::{ModelCard, ModelCardBuilder};
+pub use pipeline::{EvaluationConfig, EvaluationPipeline, EvaluationResults};
