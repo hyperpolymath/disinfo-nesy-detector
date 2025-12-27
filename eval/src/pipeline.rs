@@ -7,11 +7,15 @@
 //! - Dataset loading
 //! - Baseline model training and evaluation
 //! - Metrics computation
+//! - Explainability analysis
+//! - Model card generation
 //! - Results serialization
 
 use crate::baselines::{all_baselines, BaselineModel};
 use crate::datasets::{Dataset, Label, Sample};
+use crate::explainability::{Explanation, ExplainabilityMetrics};
 use crate::metrics::EvaluationMetrics;
+use crate::model_card::{ModelCard, ModelCardBuilder};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -57,9 +61,12 @@ pub struct ModelResult {
     pub model_name: String,
     pub model_description: String,
     pub metrics: EvaluationMetrics,
+    pub explainability_metrics: Option<ExplainabilityMetrics>,
     pub predictions_sample: Vec<PredictionSample>,
+    pub explanations_sample: Vec<ExplanationSample>,
     pub training_samples: usize,
     pub eval_samples: usize,
+    pub supports_explanations: bool,
 }
 
 /// A sample prediction for inspection
@@ -71,6 +78,18 @@ pub struct PredictionSample {
     pub actual: String,
     pub probability: f64,
     pub correct: bool,
+}
+
+/// A sample explanation for inspection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplanationSample {
+    pub id: String,
+    pub text_preview: String,
+    pub prediction: String,
+    pub confidence: f64,
+    pub summary: String,
+    pub evidence_count: usize,
+    pub top_features: Vec<(String, f64)>,
 }
 
 /// Complete evaluation results
@@ -182,28 +201,39 @@ impl EvaluationPipeline {
 
     /// Evaluate a single model
     fn evaluate_model(&self, model: &dyn BaselineModel, eval_samples: &[Sample]) -> ModelResult {
-        let predictions = model.predict_batch(eval_samples);
+        let supports_explanations = model.supports_explanations();
 
-        let pred_labels: Vec<Label> = predictions.iter().map(|p| p.label).collect();
+        // Get predictions with explanations if supported
+        let predictions_with_explanations = model.predict_batch_with_explanations(eval_samples);
+
+        let pred_labels: Vec<Label> = predictions_with_explanations.iter().map(|p| p.prediction.label).collect();
         let true_labels: Vec<Label> = eval_samples.iter().map(|s| s.label).collect();
-        let probabilities: Vec<f64> = predictions.iter().map(|p| p.probability).collect();
+        let probabilities: Vec<f64> = predictions_with_explanations.iter().map(|p| p.prediction.probability).collect();
 
         let metrics = EvaluationMetrics::from_predictions_with_probs(&pred_labels, &true_labels, &probabilities);
+
+        // Compute explainability metrics if model supports explanations
+        let explanations: Vec<Explanation> = predictions_with_explanations.iter().map(|p| p.explanation.clone()).collect();
+        let explainability_metrics = if supports_explanations {
+            Some(ExplainabilityMetrics::from_explanations(&explanations, &true_labels, &probabilities))
+        } else {
+            None
+        };
 
         // Sample predictions for inspection (first 10 errors, first 10 correct)
         let mut prediction_samples = Vec::new();
         let mut errors = 0;
         let mut corrects = 0;
 
-        for (pred, sample) in predictions.iter().zip(eval_samples.iter()) {
-            let correct = pred.label == sample.label;
+        for (pred_exp, sample) in predictions_with_explanations.iter().zip(eval_samples.iter()) {
+            let correct = pred_exp.prediction.label == sample.label;
             if (!correct && errors < 10) || (correct && corrects < 10) {
                 prediction_samples.push(PredictionSample {
                     id: sample.id.clone(),
                     text_preview: sample.text.chars().take(100).collect::<String>() + "...",
-                    predicted: format!("{:?}", pred.label),
+                    predicted: format!("{:?}", pred_exp.prediction.label),
                     actual: format!("{:?}", sample.label),
-                    probability: pred.probability,
+                    probability: pred_exp.prediction.probability,
                     correct,
                 });
                 if correct {
@@ -217,14 +247,72 @@ impl EvaluationPipeline {
             }
         }
 
+        // Sample explanations (first 5 with non-empty evidence)
+        let mut explanations_sample = Vec::new();
+        for (pred_exp, sample) in predictions_with_explanations.iter().zip(eval_samples.iter()) {
+            if explanations_sample.len() >= 5 {
+                break;
+            }
+            if !pred_exp.explanation.evidence.is_empty() || !pred_exp.explanation.reasoning_trace.is_empty() {
+                let top_features: Vec<(String, f64)> = pred_exp.explanation.top_features(3)
+                    .into_iter()
+                    .map(|(k, v)| (k.clone(), *v))
+                    .collect();
+
+                explanations_sample.push(ExplanationSample {
+                    id: sample.id.clone(),
+                    text_preview: sample.text.chars().take(80).collect::<String>() + "...",
+                    prediction: format!("{:?}", pred_exp.prediction.label),
+                    confidence: pred_exp.prediction.probability,
+                    summary: pred_exp.explanation.summary.clone(),
+                    evidence_count: pred_exp.explanation.evidence.len(),
+                    top_features,
+                });
+            }
+        }
+
         ModelResult {
             model_name: model.name().to_string(),
             model_description: model.description().to_string(),
             metrics,
+            explainability_metrics,
             predictions_sample: prediction_samples,
+            explanations_sample,
             training_samples: self.get_train_samples().len(),
             eval_samples: eval_samples.len(),
+            supports_explanations,
         }
+    }
+
+    /// Generate a model card for a specific model result
+    pub fn generate_model_card(result: &ModelResult, dataset_info: &DatasetInfo) -> ModelCard {
+        let mut builder = ModelCardBuilder::new(
+            &result.model_name,
+            env!("CARGO_PKG_VERSION"),
+            &result.model_description,
+        )
+        .description(&format!(
+            "Baseline model for disinformation detection. {}",
+            result.model_description
+        ))
+        .organization("Hyperpolymath")
+        .license("AGPL-3.0-or-later")
+        .framework("Rust")
+        .metrics(&result.metrics)
+        .training_datasets(vec![dataset_info.name.clone()])
+        .training_size(result.training_samples);
+
+        // Add explainability metrics if available
+        if let Some(ref exp_metrics) = result.explainability_metrics {
+            builder = builder.explainability_metrics(exp_metrics.clone());
+        }
+
+        // Add model-specific caveats
+        if !result.supports_explanations {
+            builder = builder.add_caveat("This model does not provide detailed explanations for its predictions");
+        }
+
+        builder.build()
     }
 
     /// Run the full evaluation pipeline
@@ -359,14 +447,20 @@ impl EvaluationPipeline {
             results.summary.best_model, results.summary.best_f1, results.summary.best_accuracy));
 
         report.push_str("### Baseline Comparison\n\n");
-        report.push_str("| Model | Accuracy | F1 Score | MCC | AUC-ROC |\n");
-        report.push_str("|-------|----------|----------|-----|--------|\n");
+        report.push_str("| Model | Accuracy | F1 Score | MCC | AUC-ROC | Explainable |\n");
+        report.push_str("|-------|----------|----------|-----|---------|-------------|\n");
 
-        for baseline in &results.summary.baseline_comparison {
-            let auc = baseline.auc_roc.map_or("-".to_string(), |v| format!("{:.4}", v));
+        for result in &results.baseline_results {
+            let auc = result.metrics.auc_roc.map_or("-".to_string(), |v| format!("{:.4}", v));
+            let explainable = if result.supports_explanations { "✓" } else { "-" };
             report.push_str(&format!(
-                "| {} | {:.4} | {:.4} | {:.4} | {} |\n",
-                baseline.model, baseline.accuracy, baseline.f1_score, baseline.mcc, auc
+                "| {} | {:.4} | {:.4} | {:.4} | {} | {} |\n",
+                result.model_name,
+                result.metrics.classification.accuracy,
+                result.metrics.classification.f1_score,
+                result.metrics.classification.mcc,
+                auc,
+                explainable
             ));
         }
 
@@ -376,14 +470,68 @@ impl EvaluationPipeline {
             report.push_str(&format!("### {}\n\n", result.model_name));
             report.push_str(&format!("*{}*\n\n", result.model_description));
             report.push_str(&format!("- Training samples: {}\n", result.training_samples));
-            report.push_str(&format!("- Evaluation samples: {}\n\n", result.eval_samples));
+            report.push_str(&format!("- Evaluation samples: {}\n", result.eval_samples));
+            report.push_str(&format!("- Supports explanations: {}\n\n", result.supports_explanations));
+
+            report.push_str("#### Performance Metrics\n\n");
             report.push_str(&format!("```\n{}\n```\n\n", result.metrics.classification.format()));
+
+            // Add explainability metrics if available
+            if let Some(ref exp_metrics) = result.explainability_metrics {
+                report.push_str("#### Explainability Metrics\n\n");
+                report.push_str(&format!("```\n{}\n```\n\n", exp_metrics.format()));
+            }
+
+            // Add sample explanations if available
+            if !result.explanations_sample.is_empty() {
+                report.push_str("#### Sample Explanations\n\n");
+                for (i, exp) in result.explanations_sample.iter().take(3).enumerate() {
+                    report.push_str(&format!("**Example {}:** {}\n\n", i + 1, exp.text_preview));
+                    report.push_str(&format!("- Prediction: {} (confidence: {:.2}%)\n", exp.prediction, exp.confidence * 100.0));
+                    report.push_str(&format!("- Evidence count: {}\n", exp.evidence_count));
+                    if !exp.top_features.is_empty() {
+                        report.push_str("- Top features:\n");
+                        for (feat, score) in &exp.top_features {
+                            report.push_str(&format!("  - {}: {:.4}\n", feat, score));
+                        }
+                    }
+                    report.push('\n');
+                }
+            }
         }
 
         report.push_str("## Configuration\n\n");
         report.push_str(&format!("```json\n{}\n```\n", serde_json::to_string_pretty(&results.config).unwrap_or_default()));
 
         report
+    }
+
+    /// Generate and save model cards for all evaluated models
+    pub fn save_model_cards(results: &EvaluationResults, output_dir: &Path) -> Result<Vec<std::path::PathBuf>> {
+        let cards_dir = output_dir.join("model_cards");
+        std::fs::create_dir_all(&cards_dir)?;
+
+        let mut saved_paths = Vec::new();
+
+        for result in &results.baseline_results {
+            let card = Self::generate_model_card(result, &results.dataset_info);
+
+            // Save as markdown
+            let md_filename = format!("{}_model_card.md", result.model_name.to_lowercase().replace(' ', "_"));
+            let md_path = cards_dir.join(&md_filename);
+            card.save(&md_path)?;
+            saved_paths.push(md_path.clone());
+
+            // Save as JSON
+            let json_filename = format!("{}_model_card.json", result.model_name.to_lowercase().replace(' ', "_"));
+            let json_path = cards_dir.join(&json_filename);
+            card.save_json(&json_path)?;
+            saved_paths.push(json_path);
+
+            tracing::info!("Model card saved: {}", md_filename);
+        }
+
+        Ok(saved_paths)
     }
 }
 

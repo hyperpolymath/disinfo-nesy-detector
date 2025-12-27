@@ -45,6 +45,10 @@ struct Args {
     /// Output format (json, markdown, both)
     #[arg(short, long, default_value = "both")]
     format: String,
+
+    /// Generate model cards for each baseline
+    #[arg(long, default_value_t = true)]
+    model_cards: bool,
 }
 
 fn main() -> Result<()> {
@@ -82,23 +86,51 @@ fn main() -> Result<()> {
     let results = pipeline.run()?;
 
     // Print summary to console
-    println!("\n{}", "=".repeat(60));
+    println!("\n{}", "=".repeat(70));
     println!("EVALUATION SUMMARY");
-    println!("{}", "=".repeat(60));
+    println!("{}", "=".repeat(70));
     println!("\nBest Model: {} (F1={:.4})", results.summary.best_model, results.summary.best_f1);
     println!("\nBaseline Comparison:");
-    println!("{:-<60}", "");
-    println!("{:<15} {:>10} {:>10} {:>10} {:>10}", "Model", "Accuracy", "F1", "MCC", "AUC-ROC");
-    println!("{:-<60}", "");
+    println!("{:-<70}", "");
+    println!("{:<15} {:>10} {:>10} {:>10} {:>10} {:>10}", "Model", "Accuracy", "F1", "MCC", "AUC-ROC", "Explain");
+    println!("{:-<70}", "");
 
-    for baseline in &results.summary.baseline_comparison {
-        let auc = baseline.auc_roc.map_or("-".to_string(), |v| format!("{:.4}", v));
+    for result in &results.baseline_results {
+        let auc = result.metrics.auc_roc.map_or("-".to_string(), |v| format!("{:.4}", v));
+        let explain = if result.supports_explanations { "Yes" } else { "-" };
         println!(
-            "{:<15} {:>10.4} {:>10.4} {:>10.4} {:>10}",
-            baseline.model, baseline.accuracy, baseline.f1_score, baseline.mcc, auc
+            "{:<15} {:>10.4} {:>10.4} {:>10.4} {:>10} {:>10}",
+            result.model_name,
+            result.metrics.classification.accuracy,
+            result.metrics.classification.f1_score,
+            result.metrics.classification.mcc,
+            auc,
+            explain
         );
     }
-    println!("{:-<60}", "");
+    println!("{:-<70}", "");
+
+    // Show explainability metrics for models that support it
+    let explainable_models: Vec<_> = results.baseline_results.iter()
+        .filter(|r| r.supports_explanations && r.explainability_metrics.is_some())
+        .collect();
+
+    if !explainable_models.is_empty() {
+        println!("\nExplainability Metrics:");
+        println!("{:-<70}", "");
+        for result in explainable_models {
+            if let Some(ref exp_metrics) = result.explainability_metrics {
+                println!(
+                    "{}: Completeness={:.1}%, Consistency={:.1}%, Evidence={:.1}",
+                    result.model_name,
+                    exp_metrics.avg_completeness * 100.0,
+                    exp_metrics.feature_consistency * 100.0,
+           Add pinned toolchains + reproducible build         exp_metrics.avg_evidence_count
+                );
+            }
+        }
+        println!("{:-<70}", "");
+    }
 
     // Save outputs
     std::fs::create_dir_all(&args.output)?;
@@ -116,6 +148,12 @@ fn main() -> Result<()> {
         let md_path = args.output.join(format!("eval_{}_{}.md", args.dataset, timestamp));
         std::fs::write(&md_path, report)?;
         println!("Markdown report saved to: {}", md_path.display());
+    }
+
+    // Generate model cards
+    if args.model_cards {
+        let cards = EvaluationPipeline::save_model_cards(&results, &args.output)?;
+        println!("Model cards saved to: {}/model_cards/ ({} files)", args.output.display(), cards.len());
     }
 
     println!("\nEvaluation complete!");
