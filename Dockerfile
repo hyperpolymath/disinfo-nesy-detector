@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2024 Hyperpolymath
 
-FROM rust:1.83-slim-bookworm AS builder
+FROM rust:1.85-slim-bookworm AS builder
 
 WORKDIR /build
 
