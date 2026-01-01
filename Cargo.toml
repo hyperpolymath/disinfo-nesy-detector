@@ -17,12 +17,12 @@ tokio = { version = "1.42", features = ["full", "signal"] }
 async-nats = "0.45"
 
 # Protobuf
-prost = "0.13"
+prost = "0.14"
 # Security fix: override transitive protobuf to patch CVE-2025-53605
 protobuf = "3.7"
 
 # Prometheus metrics
-prometheus = { version = "0.13", features = ["process"] }
+prometheus = { version = "0.14", features = ["process"] }
 hyper = { version = "1.5", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
 http-body-util = "0.1"
