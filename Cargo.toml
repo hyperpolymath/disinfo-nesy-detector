@@ -17,7 +17,7 @@ tokio = { version = "1.42", features = ["full", "signal"] }
 async-nats = "0.38"
 
 # Protobuf
-prost = "0.13"
+prost = "0.14"
 # Security fix: override transitive protobuf to patch CVE-2025-53605
 protobuf = "3.7"
 
