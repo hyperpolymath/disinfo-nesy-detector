@@ -185,7 +185,7 @@ protoc --go_out=. pkg/model_pb/analysis.proto
 
 == License
 
-This project is licensed under **AGPL-3.0-or-later**.
+This project is licensed under **PMPL-1.0-or-later**.
 
 See link:docs/CITATIONS.adoc[CITATIONS.adoc] for citation formats.
 
