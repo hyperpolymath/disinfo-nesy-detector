@@ -78,3 +78,6 @@ htmlcov/
 *.tmp
 *.bak
 eval/target/
+
+# Crash recovery artifacts
+ai-cli-crash-capture/
